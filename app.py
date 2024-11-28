@@ -1,4 +1,4 @@
-from flask import Flask, request, render_template, jsonify, make_response
+from flask import Flask, request, render_template, jsonify
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -6,50 +6,36 @@ from dotenv import load_dotenv
 import os
 from threading import Thread
 
-# Load environment variables
+# Recuperar las variables de entorno
 load_dotenv()
 
 # Debugging: Print environment variables
-EMAIL_HOST = os.getenv('EMAIL_HOST')
-EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER')
-EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD')
-EMAIL_PORT = os.getenv('EMAIL_PORT')
-EMAIL_DESTINATARIO = os.getenv('EMAIL_DESTINATARIO')
-EMAIL_DESTINATARIO_CC = os.getenv('EMAIL_DESTINATARIO_CC')
-EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS')
-EMAIL_ASUNTO = os.getenv('EMAIL_ASUNTO')
-
-# Debugging: Print loaded environment variables
-print(f"EMAIL_HOST: {EMAIL_HOST}")
-print(f"EMAIL_HOST_USER: {EMAIL_HOST_USER}")
-print(f"EMAIL_HOST_PASSWORD: {EMAIL_HOST_PASSWORD}")
-print(f"EMAIL_PORT: {EMAIL_PORT}")
-print(f"EMAIL_DESTINATARIO: {EMAIL_DESTINATARIO}")
-print(f"EMAIL_DESTINATARIO_CC: {EMAIL_DESTINATARIO_CC}")
-print(f"EMAIL_USE_TLS: {EMAIL_USE_TLS}")
-print(f"EMAIL_ASUNTO: {EMAIL_ASUNTO}")
-
+EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.gmail.com')
+EMAIL_HOST_USER = os.getenv('USER')
+EMAIL_HOST_PASSWORD = os.getenv('PASSWORD')
+EMAIL_PORT = int(os.getenv('EMAIL_PORT', 587))
+EMAIL_DESTINATARIO = os.getenv('DESTINATARIO')
+EMAIL_DESTINATARIO_CC = os.getenv('DESTINATARIO_CC')
+EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'true').lower() == 'true'
+EMAIL_ASUNTO = os.getenv('ASUNTO')
 
 app = Flask(__name__)
 
 @app.route('/')
 def index():
-    resp = make_response(render_template('index.html'))
-    resp.set_cookie('my_cookie', 'cookie_value', samesite='Lax')
-    return resp
+    return render_template('Index.html')
 
 def send_async_email(app, msg, remitente, destinatarios, password):
     with app.app_context():
         try:
             server = smtplib.SMTP(EMAIL_HOST, EMAIL_PORT)
-            if EMAIL_USE_TLS.lower() == 'true':
+            if EMAIL_USE_TLS:
                 server.starttls()
             server.login(remitente, password)
             server.sendmail(remitente, destinatarios, msg.as_string())
             server.quit()
         except Exception as e:
             print(f"Error al enviar el correo: {str(e)}")
-            raise
 
 @app.route('/send_email', methods=['POST'])
 def send_email():
@@ -60,18 +46,22 @@ def send_email():
     telefono = request.form.get('telefono')
     mensaje = request.form.get('mensaje')
 
+    # chequea que existan todos los campos del formulario que son obligatorios
     if not all([nombre, email, telefono, mensaje]):
         return jsonify({"message": "Campos Obligatorios no ingresados."}), 400
 
+    # SMTP configuracion del servidor
     remitente = EMAIL_HOST_USER
     password = EMAIL_HOST_PASSWORD
     destinatario = EMAIL_DESTINATARIO
-    destinatario_cc = EMAIL_DESTINATARIO_CC
+    destinatario_cc = EMAIL_DESTINATARIO_CC  # Puede ser opcional
     asunto = EMAIL_ASUNTO
 
+    # chequea que exista la configuración del servidor SMTP
     if not remitente or not password:
         return jsonify({"message": "Error en la configuración del servidor SMTP."}), 500
 
+    # Gererar el cuerpo del mensaje
     msg = MIMEMultipart()
     msg['From'] = remitente
     msg['To'] = destinatario
@@ -89,8 +79,10 @@ def send_email():
     """
     msg.attach(MIMEText(body, 'plain'))
 
+    # Crear lista de destinatarios sin duplicados
     destinatarios = list(set([destinatario] + ([destinatario_cc] if destinatario_cc else [])))
 
+    # Enviar el correo de manera asíncrona
     Thread(target=send_async_email, args=(app, msg, remitente, destinatarios, password)).start()
     return jsonify({"message": "Gracias por ponerse en contacto con Tradicom S.A. nos comunicaremos con ud. a la brevedad"}), 200
 
